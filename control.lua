@@ -237,7 +237,7 @@ local function show_round_summary(player, round_index, rounds_total, score, tota
 
     flow.add{
         type = "label",
-        caption = {"geoguessr.rounds-total-score", total-score},
+        caption = {"geoguessr.rounds-total-score", total_score},
     }
 
     flow.add{
