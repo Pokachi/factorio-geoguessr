@@ -65,31 +65,64 @@ local function toggle_game_setting_ui(player)
 			{"geoguessr.round-time-five-minutes"},
 			{"geoguessr.round-time-ten-minutes"}
 		},
-		storage.geoguessr[player.index].setting.minutes_index or 5
+		storage.geoguessr[player.index].setting.minutes_index or 5,
+		{"geoguessr.round-time-tooltip"}
 	)
 	
 	-- Rounds label
 	util.add_centered_dropdown(frame, {"geoguessr.rounds"}, "geo_rounds_dropdown",
 		{"1", "3", "5", "10", "15"},
-		storage.geoguessr[player.index].setting.rounds_index or 2
+		storage.geoguessr[player.index].setting.rounds_index or 2,
+		{"geoguessr.rounds-tooltip"}
 	)
 	
 	-- Surface label
 	util.add_centered_dropdown(frame, {"geoguessr.surfaces"}, "geo_surfaces_dropdown",
 		{{"geoguessr.surfaces-current"}, {"geoguessr.surfaces-all"}},
-		storage.geoguessr[player.index].setting.surface_index or 1
+		storage.geoguessr[player.index].setting.surface_index or 1,
+		{"geoguessr.surfaces-tooltip"}
+	)
+	
+	-- Blacklisted Surfaces
+	util.add_centered_textfield(frame, {"geoguessr.blacklisted-surfaces"}, "geo_blacklisted_surfaces_textfield",
+		storage.geoguessr[player.index].setting.geo_blacklisted_surfaces or "",
+		{"geoguessr.blacklisted-surfaces-tooltip"}
 	)
 	
 	-- Zoom label
 	util.add_centered_dropdown(frame, {"geoguessr.zoom"}, "geo_preview_zoom_dropdown",
 		{"5", "4", "3", "2", "1"},
-		storage.geoguessr[player.index].setting.zoom_level_index or 2
+		storage.geoguessr[player.index].setting.zoom_level_index or 2,
+		{"geoguessr.zoom-tooltip"}
 	)
 
-	-- Entities input
+	-- Entities count
 	util.add_centered_dropdown(frame, {"geoguessr.entities-required"}, "geo_player_entities_count_dropdown",
 		{"0", "5", "10", "20", "30"},
-		storage.geoguessr[player.index].setting.entities_count_index or 2
+		storage.geoguessr[player.index].setting.entities_count_index or 2,
+		{"geoguessr.entities-required-tooltip"}
+	)
+	
+	-- Blacklisted Entities
+	util.add_centered_textfield(frame, {"geoguessr.blacklisted-entities"}, "geo_blacklisted_entities_textfield",
+		storage.geoguessr[player.index].setting.geo_blacklisted_entities or "",
+		{"geoguessr.blacklisted-entities-tooltip"}
+	)
+	
+	-- Hide map settings
+	util.add_centered_checkbox(frame, {"geoguessr.hide-map-settings"}, "geo_hide_map_settings_checkbox", 
+		storage.geoguessr[player.index].setting.geo_hide_map_settings or false,
+		{"geoguessr.hide-map-settings-tooltip"}
+	)
+	
+	-- Distance unit
+	util.add_centered_dropdown(frame, {"geoguessr.distance-unit"}, "geo_distance_unit_dropdown",
+		{
+			{"geoguessr.distance-unit-chunk"},
+			{"geoguessr.distance-unit-meter"}
+		},
+		storage.geoguessr[player.index].setting.distance_unit_index or 2,
+		{"geoguessr.distance-unit-tooltip"}
 	)
 	
     local button_flow = frame.add{
@@ -129,8 +162,8 @@ local function create_gameplay_view(player, surface, chunk)
     end
 
     local center = {
-        x = chunk.x * 32 + 16,
-        y = chunk.y * 32 + 16
+        x = chunk[2].x,
+        y = chunk[2].y
     }
 
     local frame = player.gui.screen.add{
@@ -224,11 +257,17 @@ local function show_round_summary(player, round_index, rounds_total, score, tota
         type = "label",
         caption = {"geoguessr.rounds-number", round_index, rounds_total},
     }
-
-    flow.add{
-        type = "label",
-        caption = {"geoguessr.rounds-distance", string.format("%2f", distance)},
-    }
+	if storage.geoguessr[player.index].distance_unit_index then
+		flow.add{
+			type = "label",
+			caption = {"geoguessr.rounds-distance", string.format("%.2f", distance)},
+		}
+	else
+		flow.add{
+			type = "label",
+			caption = {"geoguessr.rounds-distance-meters", distance},
+		}
+	end
 
     flow.add{
         type = "label",
@@ -291,6 +330,27 @@ script.on_event(defines.events.on_gui_click, function(e)
 		-- Minimum number of player entities to be considered for guessing
 		local entities_count = tonumber(player.gui.screen.geo_frame.geo_player_entities_count_dropdown_h_flow.dropdown_flow.geo_player_entities_count_dropdown.get_item(player.gui.screen.geo_frame.geo_player_entities_count_dropdown_h_flow.dropdown_flow.geo_player_entities_count_dropdown.selected_index))
 		
+		-- Hides Tags, Train Stations, etc.
+		local hide_map_settings = player.gui.screen.geo_frame.geo_hide_map_settings_checkbox_h_flow.checkbox_flow.geo_hide_map_settings_checkbox.state
+		
+		-- Blacklisted Surfaces are excluded from being picked
+		local blacklisted_surfaces, err = util.split_csv(player.gui.screen.geo_frame.geo_blacklisted_surfaces_textfield_h_flow.textfield_flow.geo_blacklisted_surfaces_textfield.text, {"geoguessr.blacklisted-surfaces"})
+		
+		if blacklisted_surfaces == nil then
+			player.print(err)
+			return
+		end
+		
+		-- Blacklisted Entities are excluded from being picked
+		local blacklisted_entities, err = util.split_csv(player.gui.screen.geo_frame.geo_blacklisted_entities_textfield_h_flow.textfield_flow.geo_blacklisted_entities_textfield.text, {"geoguessr.blacklisted-entities"})
+		
+		if blacklisted_entities == nil then
+			player.print(err)
+			return
+		end
+		
+		local distance_unit = player.gui.screen.geo_frame.geo_distance_unit_dropdown_h_flow.dropdown_flow.geo_distance_unit_dropdown.selected_index == 1
+		
         -- Setting up the storage variables
         storage.geoguessr[e.player_index].round_active = true
 		storage.geoguessr[e.player_index].round_duration = duration
@@ -298,15 +358,23 @@ script.on_event(defines.events.on_gui_click, function(e)
 		storage.geoguessr[e.player_index].round_surface = surface
 		storage.geoguessr[e.player_index].zoom_level = zoom_level
 		storage.geoguessr[e.player_index].entities_count = entities_count
+		storage.geoguessr[e.player_index].blacklisted_surfaces = blacklisted_surfaces
+		storage.geoguessr[e.player_index].blacklisted_entities = blacklisted_entities
 		storage.geoguessr[e.player_index].round_index = 1
 		storage.geoguessr[e.player_index].total_score = 0
-		storage.geoguessr[e.player_index].guess_position = nil
+		storage.geoguessr[e.player_index].guess = nil
+		storage.geoguessr[e.player_index].hide_map_settings = hide_map_settings
+		storage.geoguessr[e.player_index].distance_unit = distance_unit
 		storage.geoguessr[e.player_index].setting = {
 			minutes_index = player.gui.screen.geo_frame.geo_time_dropdown_h_flow.dropdown_flow.geo_time_dropdown.selected_index,
 			rounds_index = player.gui.screen.geo_frame.geo_rounds_dropdown_h_flow.dropdown_flow.geo_rounds_dropdown.selected_index,
 			surface_index = player.gui.screen.geo_frame.geo_surfaces_dropdown_h_flow.dropdown_flow.geo_surfaces_dropdown.selected_index,
 			zoom_level_index = player.gui.screen.geo_frame.geo_preview_zoom_dropdown_h_flow.dropdown_flow.geo_preview_zoom_dropdown.selected_index,
-			entities_count_index = player.gui.screen.geo_frame.geo_player_entities_count_dropdown_h_flow.dropdown_flow.geo_player_entities_count_dropdown.selected_index
+			entities_count_index = player.gui.screen.geo_frame.geo_player_entities_count_dropdown_h_flow.dropdown_flow.geo_player_entities_count_dropdown.selected_index,
+			distance_unit_index = player.gui.screen.geo_frame.geo_distance_unit_dropdown_h_flow.dropdown_flow.geo_distance_unit_dropdown.selected_index,
+			geo_hide_map_settings = player.gui.screen.geo_frame.geo_hide_map_settings_checkbox_h_flow.checkbox_flow.geo_hide_map_settings_checkbox.state,
+			geo_blacklisted_surfaces = player.gui.screen.geo_frame.geo_blacklisted_surfaces_textfield_h_flow.textfield_flow.geo_blacklisted_surfaces_textfield.text,
+			geo_blacklisted_entities = player.gui.screen.geo_frame.geo_blacklisted_entities_textfield_h_flow.textfield_flow.geo_blacklisted_entities_textfield.text
 		}
 		
         -- Close start UI
@@ -318,8 +386,57 @@ script.on_event(defines.events.on_gui_click, function(e)
 		player.set_zoom_limits(defines.controllers.character, { furthest = {zoom=0.003} , furthest_game_view = {distance=1, max_distance = 1}})
 		player.set_zoom_limits(defines.controllers.remote, { furthest = {zoom=0.003} , furthest_game_view = {distance=1, max_distance = 1}})
 		
+		-- Put the player in remote view and disable player views
+		player.set_controller({type=defines.controllers.remote})
+		storage.geoguessr[e.player_index].view_setting = {
+			show_minimap = player.game_view_settings.show_minimap,
+			show_research_info = player.game_view_settings.show_research_info,
+			show_entity_info = player.game_view_settings.show_entity_info,
+			show_map_view_options = player.game_view_settings.show_map_view_options,
+			show_entity_tooltip = player.game_view_settings.show_entity_tooltip,
+			show_quickbar = player.game_view_settings.show_quickbar,
+			show_shortcut_bar = player.game_view_settings.show_shortcut_bar,
+			show_crafting_queue = player.game_view_settings.show_crafting_queue,
+			show_tool_bar = player.game_view_settings.show_tool_bar,
+			show_hotkey_suggestions = player.game_view_settings.show_hotkey_suggestions,
+			update_entity_selection = player.game_view_settings.update_entity_selection,
+			show_side_menu = player.game_view_settings.show_side_menu
+		}
+		player.game_view_settings.show_minimap = false
+		player.game_view_settings.show_research_info = false
+		player.game_view_settings.show_entity_info = false
+		player.game_view_settings.show_map_view_options = false
+		player.game_view_settings.show_entity_tooltip = false
+		player.game_view_settings.show_quickbar = false
+		player.game_view_settings.show_shortcut_bar = false
+		player.game_view_settings.show_crafting_queue = false
+		player.game_view_settings.show_tool_bar = false
+		player.game_view_settings.show_hotkey_suggestions = false
+		player.game_view_settings.update_entity_selection = false
+		player.game_view_settings.show_side_menu = false
+		
+		if hide_map_settings then
+			player.map_view_settings = {
+				["show-logistic-network"] = false,
+				["show-electric-network"] = false,
+				["show-turret-range"] = false,
+				["show-pollution"] = false,
+				--["show-networkless-logistic-members"] = false,
+				["show-train-station-names"] = false,
+				["show-player-names"] = false,
+				["show-tags"] = false,
+				["show-worker-robots"] = false,
+				["show-rail-signal-states"] = false,
+				["show-recipe-icons"] = false,
+				["show-pipelines"] = false,
+				--["show-non-standard-map-info"] = false,
+			}
+		end
+		
 		-- Start the game :D
-		start_round(player)
+		if start_round(player) == -1 then
+			return
+		end
 		
         -- Keep shortcut active during round
         player.set_shortcut_toggled("geo-toggle", true)
@@ -330,9 +447,9 @@ script.on_event(defines.events.on_gui_click, function(e)
     end
 
     -- Guess confirm
-    if e.element.name == "geo_guess_confirm" and storage.geoguessr[e.player_index].guess_position ~= nil then
+    if e.element.name == "geo_guess_confirm" and storage.geoguessr[e.player_index].guess ~= nil then
 
-		local score = util.calculate_score(e.player_index)
+		local score = util.calculate_score(e.player_index, game.get_player(e.player_index).surface)
 		storage.geoguessr[e.player_index].total_score = (storage.geoguessr[e.player_index].total_score or 0) + score[2]
 
         -- Close confirmation and camera GUI
@@ -342,6 +459,8 @@ script.on_event(defines.events.on_gui_click, function(e)
         if player.gui.screen.geo_gameplay_frame then
             player.gui.screen.geo_gameplay_frame.destroy()
         end
+		
+		player.print({"geoguessr.target-text", util.gps_tag(storage.geoguessr[e.player_index].round_chunk[1], storage.geoguessr[e.player_index].round_chunk[2])})
 
 		-- Show round summary
 		show_round_summary(
@@ -368,8 +487,10 @@ script.on_event(defines.events.on_gui_click, function(e)
 			--player.print("Game finished! Total score: " .. storage.geoguessr[e.player_index].total_score)
 			util.reset_game(player)
 		else
-			storage.geoguessr[e.player_index].guess_position = nil
-			start_round(player)
+			storage.geoguessr[e.player_index].guess = nil
+			if start_round(player) == -1 then
+				return
+			end
 			storage.geoguessr[e.player_index].round_active = true
 			util.give_player_geoguessr_tool(player)
 		end
@@ -381,26 +502,34 @@ script.on_event(defines.events.on_gui_click, function(e)
         if player.gui.screen.geo_confirm_frame then
             player.gui.screen.geo_confirm_frame.destroy()
         end
-        storage.geoguessr[e.player_index].guess_position = nil
+        storage.geoguessr[e.player_index].guess = nil
 		util.give_player_geoguessr_tool(player)
     end
 end)
 
 
 function start_round(player)
-    local surface = storage.geoguessr[player.index].round_surface and player.surface or util.get_random_surface()
-    local chunk = util.get_random_player_position(surface, storage.geoguessr[player.index].entities_count, player.force)
+	local max_attempts = 100
+	
+	for attempt = 1, max_attempts do
+		local surface = storage.geoguessr[player.index].round_surface and player.surface or util.get_random_surface(player)
+		
+		if surface then
+			
+			local chunk = util.get_random_player_position(surface, player)
+			if chunk then
+				storage.geoguessr[player.index].round_chunk = chunk
+				storage.geoguessr[player.index].round_end_tick = game.tick + storage.geoguessr[player.index].round_duration
 
-    if not chunk then
-        player.print("No valid chunks found in " .. surface.name .. "!")
-		util.reset_game(player)
-        return
-    end
+				create_gameplay_view(player, surface, chunk)
+				return
+			end
+		end
+	end
+	util.reset_game(player)
+	player.print("{geoguessr.error-cannot-find-valid-location}")
+	return -1
 
-    storage.geoguessr[player.index].round_chunk = chunk
-    storage.geoguessr[player.index].round_end_tick = game.tick + storage.geoguessr[player.index].round_duration
-
-    create_gameplay_view(player, surface, chunk)
 
     --player.print("Round " .. storage.geoguessr[player.index].round_index .. " / " .. storage.geoguessr[player.index].rounds_total)
 end
@@ -456,11 +585,12 @@ script.on_nth_tick(60, function()
 end)
 
 script.on_event(defines.events.on_player_cursor_stack_changed, function(event)
+	--game.print(tostring(storage.geoguessr[event.player_index].round_active) .. " wtf " .. tostring(event.player_index))
 	if storage.geoguessr and storage.geoguessr[event.player_index] and storage.geoguessr[event.player_index].round_active then
 		local player = game.get_player(event.player_index)
 		local cursor = player.cursor_stack
 		
-		if not (cursor and cursor.valid_for_read and cursor.name == "geo-guess-tool") and storage.geoguessr[event.player_index].guess_position == nil then 
+		if not (cursor and cursor.valid_for_read and cursor.name == "geo-guess-tool") and storage.geoguessr[event.player_index].guess == nil then 
 			util.give_player_geoguessr_tool(player)
 		end
 	end
@@ -475,8 +605,11 @@ script.on_event(prototypes.custom_input["geo-guess"], function(event)
     if not storage.geoguessr[event.player_index].round_active then return end
 
     -- Store guessed position temporarily
-    storage.geoguessr[event.player_index].guess_position = event.cursor_position
+    storage.geoguessr[event.player_index].guess = {player.surface.name, event.cursor_position}
 
+	-- Ping guessed location
+	player.print({"geoguessr.guess-text", util.gps_tag(player.surface.name, event.cursor_position)})
+	
     -- Show confirmation GUI
     if player.gui.screen.geo_confirm_frame then
         player.gui.screen.geo_confirm_frame.destroy()
@@ -492,7 +625,7 @@ script.on_event(prototypes.custom_input["geo-guess"], function(event)
 
     frame.add{
         type = "label",
-        caption = {"geoguessr.confirm-guess-text", string.format("%.0f",storage.geoguessr[event.player_index].guess_position.x), string.format("%.0f",storage.geoguessr[event.player_index].guess_position.y) }
+        caption = {"geoguessr.confirm-guess-text", string.format("%.0f",storage.geoguessr[event.player_index].guess[2].x), string.format("%.0f",storage.geoguessr[event.player_index].guess[2].y) }
     }
 
     local button_flow = frame.add{
