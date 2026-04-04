@@ -43,7 +43,7 @@ local function toggle_game_setting_ui(player)
 	}
 	filler.style.horizontally_stretchable = true
 	filler.style.height = 24
-	filler.style.width = 160
+	filler.style.width = 200
 	filler.drag_target = frame
 	
 	titlebar.add{
@@ -235,6 +235,14 @@ end
 -- Round Summary View
 --------------------------------------------------
 local function show_round_summary(player, round_index, rounds_total, score, total_score, distance)
+	-- ping target location
+	storage.geoguessr[player.index].round_chunk[3] = rendering.draw_circle{color={1,0,0,1},radius=0.6/player.zoom,filled=true,blink_interval=30,target=storage.geoguessr[player.index].round_chunk[2], surface=storage.geoguessr[player.index].round_chunk[1], render_mode="chart"}
+	
+	-- bring camera to target location
+	local temp_zoom = player.zoom
+	player.set_controller({type=defines.controllers.remote, position=storage.geoguessr[player.index].round_chunk[2], surface=storage.geoguessr[player.index].round_chunk[1]})
+	player.zoom = temp_zoom
+	
     -- Destroy old summary frame if exists
     if player.gui.screen.geo_summary_frame then
         player.gui.screen.geo_summary_frame.destroy()
@@ -307,6 +315,9 @@ script.on_event(defines.events.on_gui_click, function(e)
 		if player.gui.screen.geo_gameplay_frame then
 			player.gui.screen.geo_gameplay_frame.destroy()
 		end
+        if player.gui.screen.geo_confirm_frame then
+            player.gui.screen.geo_confirm_frame.destroy()
+        end
 		util.reset_game(player)
 		return
 	end
@@ -460,7 +471,7 @@ script.on_event(defines.events.on_gui_click, function(e)
             player.gui.screen.geo_gameplay_frame.destroy()
         end
 		
-		player.print({"geoguessr.target-text", util.gps_tag(storage.geoguessr[e.player_index].round_chunk[1], storage.geoguessr[e.player_index].round_chunk[2])})
+		--player.print({"geoguessr.target-text", util.gps_tag(storage.geoguessr[e.player_index].round_chunk[1], storage.geoguessr[e.player_index].round_chunk[2])})
 
 		-- Show round summary
 		show_round_summary(
@@ -487,6 +498,13 @@ script.on_event(defines.events.on_gui_click, function(e)
 			--player.print("Game finished! Total score: " .. storage.geoguessr[e.player_index].total_score)
 			util.reset_game(player)
 		else
+			-- Remove Rendering
+			if storage.geoguessr[e.player_index].guess and storage.geoguessr[e.player_index].guess[3] and storage.geoguessr[e.player_index].guess[3].valid then
+				storage.geoguessr[e.player_index].guess[3].destroy()
+			end
+			if storage.geoguessr[e.player_index].round_chunk and storage.geoguessr[e.player_index].round_chunk[3] and storage.geoguessr[e.player_index].round_chunk[3].valid then
+				storage.geoguessr[e.player_index].round_chunk[3].destroy()
+			end
 			storage.geoguessr[e.player_index].guess = nil
 			if start_round(player) == -1 then
 				return
@@ -502,6 +520,9 @@ script.on_event(defines.events.on_gui_click, function(e)
         if player.gui.screen.geo_confirm_frame then
             player.gui.screen.geo_confirm_frame.destroy()
         end
+		if storage.geoguessr[e.player_index].guess and storage.geoguessr[e.player_index].guess[3] and storage.geoguessr[e.player_index].guess[3].valid then
+			storage.geoguessr[e.player_index].guess[3].destroy()
+		end
         storage.geoguessr[e.player_index].guess = nil
 		util.give_player_geoguessr_tool(player)
     end
@@ -541,6 +562,17 @@ script.on_nth_tick(60, function()
     if not storage.geoguessr then return end
 	
 	for player_index, geoguessr in pairs(storage.geoguessr) do
+		
+		local player = game.get_player(player_index)
+		--Update rendering
+		if geoguessr.guess and geoguessr.guess[3] and geoguessr.guess[3].valid then
+			geoguessr.guess[3].radius = 0.6/player.zoom
+		end
+		if geoguessr.round_chunk and geoguessr.round_chunk[3] and geoguessr.round_chunk[3].valid then
+			geoguessr.round_chunk[3].radius = 0.6/player.zoom
+		end
+		
+		-- Update timer
 		if geoguessr.round_active then
 			local remaining = geoguessr.round_end_tick - game.tick
 			remaining = math.max(0, remaining)  -- clamp to 0
@@ -550,7 +582,6 @@ script.on_nth_tick(60, function()
 			local minutes = math.floor(total_seconds / 60)
 			local seconds = total_seconds % 60
 
-			local player = game.get_player(player_index)
 			local frame = player.gui.screen.geo_gameplay_frame
 			if frame then
 				local label = frame.info.geo_timer_label
@@ -569,15 +600,24 @@ script.on_nth_tick(60, function()
 
 			-- End round
 			if remaining <= 0 then
+				if player.gui.screen.geo_gameplay_frame then
+					player.gui.screen.geo_gameplay_frame.destroy()
+				end
+				if player.gui.screen.geo_confirm_frame then
+					player.gui.screen.geo_confirm_frame.destroy()
+				end
+				if geoguessr.guess and geoguessr.guess[3] and geoguessr.guess[3].valid then
+					geoguessr.guess[3].destroy()
+				end
 				show_round_summary(
 					player,
-					storage.geoguessr[player_index].round_index,
-					storage.geoguessr[player_index].rounds_total,
+					geoguessr.round_index,
+					geoguessr.rounds_total,
 					0,
-					storage.geoguessr[player_index].total_score,
+					geoguessr.total_score,
 					0
 				)
-				storage.geoguessr[player_index].round_index = storage.geoguessr[player_index].round_index + 1
+				geoguessr.round_index = geoguessr.round_index + 1
 				geoguessr.round_active = false
 			end
 		end
@@ -604,11 +644,13 @@ script.on_event(prototypes.custom_input["geo-guess"], function(event)
     if cursor.name ~= "geo-guess-tool" then return end
     if not storage.geoguessr[event.player_index].round_active then return end
 
-    -- Store guessed position temporarily
-    storage.geoguessr[event.player_index].guess = {player.surface.name, event.cursor_position}
-
 	-- Ping guessed location
-	player.print({"geoguessr.guess-text", util.gps_tag(player.surface.name, event.cursor_position)})
+	local guess_render = rendering.draw_circle{color={0,1,0,1},radius=0.6/player.zoom,blink_interval=30,filled=true,target=event.cursor_position, surface=player.surface.name, render_mode="chart"}
+	
+    -- Store guessed position temporarily
+    storage.geoguessr[event.player_index].guess = {player.surface.name, event.cursor_position, guess_render}
+
+	--player.print({"geoguessr.guess-text", util.gps_tag(player.surface.name, event.cursor_position)})
 	
     -- Show confirmation GUI
     if player.gui.screen.geo_confirm_frame then

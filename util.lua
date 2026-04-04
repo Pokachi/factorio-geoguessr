@@ -94,6 +94,9 @@ function util.get_random_surface(player)
 end
 
 function util.reset_game(player)
+	-- Clear any renderings
+	rendering.clear("geoguessr")
+
 	-- restore player game view options
 	player.game_view_settings.show_minimap = storage.geoguessr[player.index].view_setting.show_minimap
 	player.game_view_settings.show_research_info = storage.geoguessr[player.index].view_setting.show_research_info
